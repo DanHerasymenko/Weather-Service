@@ -1,11 +1,11 @@
 package weather_service
 
 import (
-	"Weather-API-Application/internal/config"
+	"Weather-API-Application/internal/client"
 	"Weather-API-Application/internal/model"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // WeatherService defines the interface for weather operations
@@ -13,52 +13,51 @@ type WeatherService interface {
 	FetchWeatherForCity(city string) (*model.Weather, error, int)
 }
 
+// Service implements WeatherService interface
 type Service struct {
-	cfg *config.Config
+	weatherClient client.WeatherClient
 }
 
-func NewService(cfg *config.Config) *Service {
+// NewService creates a new weather service
+func NewService(weatherClient client.WeatherClient) *Service {
 	return &Service{
-		cfg: cfg,
+		weatherClient: weatherClient,
 	}
 }
 
 // FetchWeatherForCity retrieves the current weather data for the given city
-// using the external WeatherAPI.com services.
+// using the weather client to fetch data from external API.
 //
 // It performs the following steps:
-//   - Validates that the API key is present in the config.
-//   - Sends an HTTP GET request to the Weather API with the city query.
-//   - Returns 400 if the request fails to reach the API,
-//     404 if the city is not found,
-//     or 500 if decoding the response fails.
-//   - On success, returns a populated Weather struct with temperature, humidity, and description.
+//   - Uses weather client to fetch weather data
+//   - Maps the API response to internal Weather model
+//   - Returns appropriate HTTP status codes based on client response
 func (s *Service) FetchWeatherForCity(city string) (*model.Weather, error, int) {
-
-	if s.cfg.WeatherApiKey == "" {
-		return nil, fmt.Errorf("weather API key is missing in config"), http.StatusInternalServerError
-	}
-
-	url := fmt.Sprintf("https://api.weatherapi.com/v1/current.json?key=%s&q=%s&aqi=no", s.cfg.WeatherApiKey, city)
-
-	resp, err := http.Get(url)
+	// Fetch weather data from client
+	weatherResp, err := s.weatherClient.GetCurrentWeather(city)
 	if err != nil {
-		return nil, fmt.Errorf("invalid request: failed to fetch weather data: %w", err), http.StatusBadRequest
+		// Map client errors to appropriate HTTP status codes
+		if strings.Contains(err.Error(), "API key") {
+			return nil, fmt.Errorf("weather API key is missing in config"), http.StatusInternalServerError
+		}
+		if strings.Contains(err.Error(), "status 404") {
+			return nil, fmt.Errorf("city not found: %w", err), http.StatusNotFound
+		}
+		if strings.Contains(err.Error(), "failed to fetch") {
+			return nil, fmt.Errorf("invalid request: %w", err), http.StatusBadRequest
+		}
+		if strings.Contains(err.Error(), "failed to decode") {
+			return nil, fmt.Errorf("failed to decode weather data: %w", err), http.StatusInternalServerError
+		}
+		return nil, fmt.Errorf("failed to fetch weather data: %w", err), http.StatusInternalServerError
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("city not found: failed to fetch weather data: %s", resp.Status), http.StatusNotFound
+	// Map API response to internal model
+	weather := &model.Weather{
+		Temperature: weatherResp.Current.TempC,
+		Humidity:    weatherResp.Current.Humidity,
+		Description: weatherResp.Current.Condition.Text,
 	}
 
-	var weatherApiResp model.WeatherAPIResponse
-	if err = json.NewDecoder(resp.Body).Decode(&weatherApiResp); err != nil {
-		return nil, fmt.Errorf("failed to decode weather data: %w", err), http.StatusInternalServerError
-	}
-
-	return &model.Weather{
-		Temperature: weatherApiResp.Current.TempC,
-		Humidity:    weatherApiResp.Current.Humidity,
-		Description: weatherApiResp.Current.Condition.Text,
-	}, nil, http.StatusOK
+	return weather, nil, http.StatusOK
 }
