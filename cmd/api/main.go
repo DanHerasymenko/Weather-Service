@@ -15,7 +15,6 @@ import (
 	_ "Weather-API-Application/cmd/api/docs"
 	"Weather-API-Application/internal/client"
 	"Weather-API-Application/internal/config"
-	"Weather-API-Application/internal/container"
 	"Weather-API-Application/internal/handler"
 	"Weather-API-Application/internal/infrastructure/database"
 	"Weather-API-Application/internal/infrastructure/repository"
@@ -23,6 +22,7 @@ import (
 	"Weather-API-Application/internal/server"
 	"Weather-API-Application/internal/services/scheduler_service"
 	"Weather-API-Application/internal/services/subscription_service"
+	"Weather-API-Application/internal/services/weather_service"
 	"context"
 	"fmt"
 )
@@ -43,9 +43,6 @@ func main() {
 		logger.Fatal(ctx, err)
 	}
 
-	// Initialize dependency injection container
-	container := container.NewContainer(cfg)
-
 	// Initialize email client
 	emailClient := client.NewEmailClient(cfg)
 
@@ -54,13 +51,16 @@ func main() {
 
 	// Initialize services
 	schedulerService := scheduler_service.NewSchedulerService(subscriptionRepository, *emailClient, cfg)
-	subscriptionService := subscription_service.NewSubscriptionService(subscriptionRepository, *emailClient, cfg).WithScheduler(schedulerService)
+	subscriptionService := subscription_service.NewSubscriptionService(subscriptionRepository, emailClient, cfg).WithScheduler(schedulerService)
 
 	// Initialize server
 	srvr := server.NewServer(cfg)
 
 	// Initialize handlers and register routes
-	weatherHandler := handler.NewWeatherHandler(container.WeatherService)
+	// Wire weather client and service directly (simple DI)
+	weatherAPIClient := client.NewWeatherClient(cfg.WeatherApiKey)
+	weatherSvc := weather_service.NewService(weatherAPIClient)
+	weatherHandler := handler.NewWeatherHandler(weatherSvc)
 	subscriptionHandler := handler.NewSubscriptionHandler(cfg, subscriptionService)
 	weatherHandler.RegisterRoutes(srvr.Router)
 	subscriptionHandler.RegisterRoutes(srvr.Router)
