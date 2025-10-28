@@ -18,13 +18,13 @@ import (
 // SchedulerService manages background weather update routines for confirmed subscriptions.
 type SchedulerService struct {
 	repo        repository.SubscriptionRepository
-	emailClient client.EmailClient
+	emailClient client.Client
 	cfg         *config.Config
 	mu          sync.Mutex
 	routines    map[string]context.CancelFunc
 }
 
-func NewSchedulerService(repo repository.SubscriptionRepository, emailClient client.EmailClient, cfg *config.Config) *SchedulerService {
+func NewSchedulerService(repo repository.SubscriptionRepository, emailClient client.Client, cfg *config.Config) *SchedulerService {
 	return &SchedulerService{
 		repo:        repo,
 		emailClient: emailClient,
